@@ -27,17 +27,38 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+def get_app_data_dir():
+    """
+    返回应用程序数据目录，使用用户的AppData目录
+    """
+    app_name = "桌面日历"
+    if sys.platform.startswith('win'):
+        # Windows: %APPDATA%\桌面日历
+        app_data = os.path.join(os.environ['APPDATA'], app_name)
+    elif sys.platform.startswith('darwin'):
+        # macOS: ~/Library/Application Support/桌面日历
+        app_data = os.path.join(os.path.expanduser('~'), 'Library', 'Application Support', app_name)
+    else:
+        # Linux/Unix: ~/.桌面日历
+        app_data = os.path.join(os.path.expanduser('~'), '.' + app_name)
+    
+    # 确保目录存在
+    os.makedirs(app_data, exist_ok=True)
+    return app_data
+
 def get_data_file_path():
     """
-    返回用于存储 events_data.json 的路径：
-      - 如果程序打包后，返回 EXE 所在目录；
-      - 否则返回源码所在目录。
+    返回用于存储 events_data.json 的路径
+    使用用户的AppData目录，确保具有写入权限
     """
-    if getattr(sys, 'frozen', False):
-        base_path = os.path.dirname(sys.executable)
-    else:
-        base_path = os.path.dirname(__file__)
-    return os.path.join(base_path, "events_data.json")
+    return os.path.join(get_app_data_dir(), "events_data.json")
+
+def get_event_types_file_path():
+    """
+    返回用于存储 event_types.json 的路径
+    使用用户的AppData目录，确保具有写入权限
+    """
+    return os.path.join(get_app_data_dir(), "event_types.json")
 
 # ---------------------------
 # 自定义日历控件
@@ -107,7 +128,10 @@ class CalendarWidget(QWidget):
 
         # 用于存储：日期字符串 -> { "type": ..., "description": ..., "color": ... }
         self.events = {}
+        # 用于存储事件类型定义：类型名称 -> { "color": ... }
+        self.event_types = {}
         self.load_events()
+        self.load_event_types()
 
         # 拖动/缩放相关变量
         self.dragging = False
@@ -149,20 +173,82 @@ class CalendarWidget(QWidget):
             try:
                 with open(json_file, 'r', encoding='utf-8') as f:
                     self.events = json.load(f)
+                print(f"成功从 {json_file} 加载事件数据")
             except Exception as e:
-                print("Failed to load events:", e)
+                print(f"Failed to load events: {e}")
                 self.events = {}
         else:
+            print(f"事件数据文件不存在，将创建新文件: {json_file}")
             self.events = {}
+            # 创建空文件
+            self.save_events()
+
+    def load_event_types(self):
+        """加载事件类型定义"""
+        json_file = get_event_types_file_path()
+        if os.path.exists(json_file):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    self.event_types = json.load(f)
+                print(f"成功从 {json_file} 加载事件类型数据")
+            except Exception as e:
+                print(f"Failed to load event types: {e}")
+                self.create_default_event_types()
+        else:
+            print(f"事件类型文件不存在，将创建默认类型: {json_file}")
+            self.create_default_event_types()
+    
+    def create_default_event_types(self):
+        """创建默认的事件类型"""
+        # 默认创建几个基本类型
+        self.event_types = {
+            "会议": {"color": "#FF5733"},
+            "生日": {"color": "#33FF57"},
+            "假期": {"color": "#3357FF"},
+            "纪念日": {"color": "#FF33A8"}
+        }
+        self.save_event_types()
+        print("已创建默认事件类型")
 
     def save_events(self):
         """将事件信息保存到持久化路径下的 JSON 文件"""
         json_file = get_data_file_path()
         try:
             with open(json_file, 'w', encoding='utf-8') as f:
-                json.dump(self.events, f, indent=4, ensure_ascii=False)
+                json.dump(self.events, f, ensure_ascii=False, indent=2)
+            print(f"事件数据已保存到: {json_file}")
         except Exception as e:
-            print("Failed to save events:", e)
+            print(f"Failed to save events: {e}")
+            print(f"尝试保存到路径: {json_file}")
+            
+            # 尝试创建目录
+            try:
+                os.makedirs(os.path.dirname(json_file), exist_ok=True)
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.events, f, ensure_ascii=False, indent=2)
+                print(f"在创建目录后成功保存事件数据到: {json_file}")
+            except Exception as e2:
+                print(f"即使创建目录后仍然无法保存: {e2}")
+
+    def save_event_types(self):
+        """保存事件类型定义"""
+        json_file = get_event_types_file_path()
+        try:
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(self.event_types, f, ensure_ascii=False, indent=2)
+            print(f"事件类型数据已保存到: {json_file}")
+        except Exception as e:
+            print(f"Failed to save event types: {e}")
+            print(f"尝试保存到路径: {json_file}")
+            
+            # 尝试创建目录
+            try:
+                os.makedirs(os.path.dirname(json_file), exist_ok=True)
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.event_types, f, ensure_ascii=False, indent=2)
+                print(f"在创建目录后成功保存事件类型数据到: {json_file}")
+            except Exception as e2:
+                print(f"即使创建目录后仍然无法保存事件类型: {e2}")
 
     def refresh_highlight(self):
         """
@@ -192,32 +278,81 @@ class CalendarWidget(QWidget):
             QToolTip.showText(QCursor.pos(), f"Type: {event_type}\nDescription: {event_desc}", self)
 
     def open_context_menu(self, pos):
-        """右键弹出菜单：添加、删除、修改事件"""
+        """右键弹出菜单：添加、删除、修改事件，管理事件类型"""
         menu = QMenu()
-        addAction = QAction("Add Event", self)
-        removeAction = QAction("Remove Event", self)
-        editAction = QAction("Edit Event Type", self)
+        addAction = QAction("添加事件", self)
+        removeAction = QAction("删除事件", self)
+        editAction = QAction("编辑事件", self)
+        
+        # 添加事件类型管理子菜单
+        typeMenu = QMenu("事件类型管理", self)
+        addTypeAction = QAction("添加新类型", self)
+        editTypeAction = QAction("编辑类型", self)
+        deleteTypeAction = QAction("删除类型", self)
+        typeMenu.addAction(addTypeAction)
+        typeMenu.addAction(editTypeAction)
+        typeMenu.addAction(deleteTypeAction)
 
         menu.addAction(addAction)
         menu.addAction(removeAction)
         menu.addAction(editAction)
+        menu.addSeparator()
+        menu.addMenu(typeMenu)
 
         globalPos = self.calendar.mapToGlobal(pos)
         action = menu.exec_(globalPos)
 
         selected_date = self.calendar.selectedDate()
         date_str = selected_date.toString("yyyy-MM-dd")
+        
+        # 处理事件类型管理
+        if action == addTypeAction:
+            self.add_event_type()
+        elif action == editTypeAction:
+            self.edit_event_type()
+        elif action == deleteTypeAction:
+            self.delete_event_type()
 
         if action == addAction:
-            event_desc, ok_desc = QInputDialog.getText(self, "Add Event", "Enter event description:")
+            # 输入事件描述
+            event_desc, ok_desc = QInputDialog.getText(self, "添加事件", "请输入事件描述:")
             if not ok_desc or not event_desc:
                 return
-            event_type, ok_type = QInputDialog.getText(self, "Add Event", "Enter event type:")
-            if not ok_type or not event_type:
-                return
-            color_name, ok_color = QInputDialog.getText(self, "Add Event", "Enter color (e.g. 'red' or '#FF0000'):")
-            if not ok_color or not color_name:
-                return
+                
+            # 选择事件类型
+            if self.event_types:
+                # 如果有预定义的事件类型，则从列表中选择
+                type_list = list(self.event_types.keys())
+                type_list.append("自定义...")  # 添加自定义选项
+                event_type, ok_type = QInputDialog.getItem(self, "选择事件类型", 
+                                                     "请选择事件类型:", 
+                                                     type_list, 0, False)
+                if not ok_type or not event_type:
+                    return
+                    
+                if event_type == "自定义...":
+                    # 如果选择了自定义，则手动输入类型和颜色
+                    event_type, ok_type = QInputDialog.getText(self, "添加事件", "请输入事件类型:")
+                    if not ok_type or not event_type:
+                        return
+                    color_name, ok_color = QInputDialog.getText(self, "添加事件", 
+                                                         "请输入颜色(如 'red' 或 '#FF0000'):")
+                    if not ok_color or not color_name:
+                        return
+                else:
+                    # 使用预定义类型的颜色
+                    color_name = self.event_types[event_type]["color"]
+            else:
+                # 如果没有预定义类型，则手动输入
+                event_type, ok_type = QInputDialog.getText(self, "添加事件", "请输入事件类型:")
+                if not ok_type or not event_type:
+                    return
+                color_name, ok_color = QInputDialog.getText(self, "添加事件", 
+                                                     "请输入颜色(如 'red' 或 '#FF0000'):")
+                if not ok_color or not color_name:
+                    return
+            
+            # 保存事件信息
             self.events[date_str] = {
                 "type": event_type,
                 "description": event_desc,
@@ -247,15 +382,22 @@ class CalendarWidget(QWidget):
     def highlight_date(self, date, highlight, color=None):
         """
         设置指定日期的格式：
-          - highlight=True 时：文字颜色使用自定义颜色（默认为 red），背景为淡黄色
+          - highlight=True 时：整个日期格子高亮，使用自定义颜色作为背景色，文字为白色
           - highlight=False 时：恢复为黑字、白底
         """
         fmt = QTextCharFormat()
         if highlight:
             if not color:
                 color = "red"
-            fmt.setForeground(QColor(color))
-            fmt.setBackground(QColor("yellow").lighter(160))
+            # 将文字设置为白色，增强可读性
+            fmt.setForeground(QColor("white"))
+            # 设置背景色为指定颜色，稍微调淡以增强视觉效果
+            bg_color = QColor(color)
+            # 确保颜色不会太深导致文字不清晰
+            if bg_color.lightness() > 200:  # 如果颜色太浅
+                fmt.setForeground(QColor("black"))  # 使用黑色文字
+            # 设置背景色填充整个格子
+            fmt.setBackground(bg_color)
         else:
             fmt.setForeground(Qt.black)
             fmt.setBackground(Qt.white)
@@ -425,11 +567,90 @@ class CalendarWidget(QWidget):
             print(f"关闭事件处理出错: {e}")
             event.ignore()
     
+    def add_event_type(self):
+        """添加新的事件类型"""
+        type_name, ok_name = QInputDialog.getText(self, "添加事件类型", "请输入事件类型名称:")
+        if not ok_name or not type_name:
+            return
+            
+        if type_name in self.event_types:
+            QMessageBox.warning(self, "类型已存在", f"事件类型 '{type_name}' 已经存在!")
+            return
+            
+        color_name, ok_color = QInputDialog.getText(self, "添加事件类型", 
+                                              "请输入颜色(如 'red' 或 '#FF0000'):", 
+                                              text="#3366FF")
+        if not ok_color or not color_name:
+            return
+            
+        # 添加新类型
+        self.event_types[type_name] = {"color": color_name}
+        self.save_event_types()
+        QMessageBox.information(self, "添加成功", f"事件类型 '{type_name}' 已成功添加!")
+    
+    def edit_event_type(self):
+        """编辑现有事件类型"""
+        if not self.event_types:
+            QMessageBox.information(self, "无类型", "当前没有事件类型可编辑")
+            return
+            
+        # 选择要编辑的类型
+        type_name, ok = QInputDialog.getItem(self, "选择类型", "选择要编辑的事件类型:", 
+                                         list(self.event_types.keys()), 0, False)
+        if not ok or not type_name:
+            return
+            
+        # 编辑颜色
+        current_color = self.event_types[type_name].get("color", "#FF0000")
+        color_name, ok_color = QInputDialog.getText(self, "编辑颜色", 
+                                              "请输入新的颜色(如 'red' 或 '#FF0000'):", 
+                                              text=current_color)
+        if not ok_color or not color_name:
+            return
+            
+        # 更新类型
+        self.event_types[type_name]["color"] = color_name
+        self.save_event_types()
+        
+        # 更新使用该类型的所有事件
+        for date_str, event in self.events.items():
+            if event.get("type") == type_name:
+                event["color"] = color_name
+        
+        self.save_events()
+        self.refresh_highlight()
+        QMessageBox.information(self, "更新成功", f"事件类型 '{type_name}' 已成功更新!")
+    
+    def delete_event_type(self):
+        """删除事件类型"""
+        if not self.event_types:
+            QMessageBox.information(self, "无类型", "当前没有事件类型可删除")
+            return
+            
+        # 选择要删除的类型
+        type_name, ok = QInputDialog.getItem(self, "选择类型", "选择要删除的事件类型:", 
+                                         list(self.event_types.keys()), 0, False)
+        if not ok or not type_name:
+            return
+            
+        # 确认删除
+        reply = QMessageBox.question(self, "确认删除", 
+                                 f"确定要删除事件类型 '{type_name}' 吗?", 
+                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            # 删除类型
+            del self.event_types[type_name]
+            self.save_event_types()
+            QMessageBox.information(self, "删除成功", f"事件类型 '{type_name}' 已成功删除!")
+    
     def close_application(self):
         """真正退出应用程序"""
         try:
             # 保存事件数据
             self.save_events()
+            # 保存事件类型数据
+            self.save_event_types()
             # 隐藏托盘图标
             self.tray_icon.hide()
             # 退出应用

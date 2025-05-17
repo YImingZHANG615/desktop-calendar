@@ -20,11 +20,15 @@ def build_exe():
             subprocess.call([sys.executable, "-m", "pip", "install", dep])
             print(f"{dep}安装完成")
     
-    # 确保events_data.json文件存在
-    if not os.path.exists("events_data.json"):
-        print("创建空的events_data.json文件...")
-        with open("events_data.json", "w", encoding="utf-8") as f:
-            f.write("{}")
+    # 确保数据文件存在
+    data_files = ["events_data.json", "event_types.json"]
+    for data_file in data_files:
+        if not os.path.exists(data_file):
+            print(f"创建空的{data_file}文件...")
+            with open(data_file, "w", encoding="utf-8") as f:
+                f.write("{}")
+        else:
+            print(f"数据文件{data_file}已存在")
     
     # 构建命令
     cmd = [
@@ -35,6 +39,7 @@ def build_exe():
         "--icon=calendar.ico",  # 使用日历图标
         "--add-data=calendar.ico;.",  # 添加图标文件
         "--add-data=events_data.json;.",  # 添加事件数据文件
+        "--add-data=event_types.json;.",  # 添加事件类型数据文件
         "--hidden-import=win32com.client",  # 添加隐藏导入
         "--hidden-import=win32api",
         "--hidden-import=win32con",
